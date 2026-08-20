@@ -177,12 +177,36 @@ def is_captcha_page(html):
 
 
 def title_matches(title, keyword):
-    """客户端过滤：标题中是否含关键词（不区分大小写）"""
+    """
+    客户端过滤：标题中是否含关键词
+
+    规则：
+    - 关键词为空 → 全部命中
+    - 标题为空 → 不命中
+    - 否则把关键词按空白拆成多个 token，任一 token 出现在标题中就算命中
+      例如 "服务器拍卖" 拆成 ["服务器", "拍卖"]，标题 "三明市传媒..." 不含，
+      但 "61 台微型服务器" 命中
+    """
     if not keyword:
         return True
     if not title:
         return False
-    return keyword.lower() in str(title).lower()
+    title_lower = str(title).lower()
+    # 拆分关键词（按空白）
+    tokens = [t for t in keyword.split() if t]
+    if not tokens:
+        # 没有空格时，整串匹配
+        return keyword.lower() in title_lower
+    # 任一 token 命中即返回 True
+    return any(t.lower() in title_lower for t in tokens)
+
+
+def search_mode_all_match(title, keyword):
+    """
+    搜索模式下：所有服务端返回的 item 都已经过服务端 q= 过滤，
+    直接全部入库即可，不再做客户端 title 过滤（避免误杀）。
+    """
+    return True
 
 
 def parse_list_data(html):
@@ -295,6 +319,7 @@ def scrape_keyword(keyword_row, session=None):
             _log(f"{'─'*60}")
 
             hit_stop = False
+            use_search_mode = (SCRAPER_MODE == 'keyword')
             for idx, it in enumerate(items, 1):
                 sf_id = it.get('id')
                 title = (it.get('title') or '').replace('\n', ' ').strip()
@@ -302,8 +327,15 @@ def scrape_keyword(keyword_row, session=None):
                 cur_price = it.get('currentPrice')
                 price_str = f"{float(cur_price):,.2f}" if cur_price is not None else '-'
 
-                matched_kw = title_matches(title, kw_name)
-                tag = ' [命中]' if matched_kw else ''
+                # 命中判定：
+                # - 搜索模式 (SCRAPER_MODE='keyword')：服务端已过滤，全部命中
+                # - 首页模式 (SCRAPER_MODE='homepage')：客户端按 title 匹配
+                if use_search_mode:
+                    matched_kw = True
+                    tag = ' [服务端]'
+                else:
+                    matched_kw = title_matches(title, kw_name)
+                    tag = ' [命中]' if matched_kw else ''
 
                 if not sf_id:
                     _log(f"{idx:<4} {'-':<16} {status:<8} {price_str:<12} {title[:40]}{tag}")
@@ -329,7 +361,7 @@ def scrape_keyword(keyword_row, session=None):
                     skipped_repeat += 1
                     break
 
-                # 标题不含关键词 → 跳过入库（但不算停止信号）
+                # 标题不含关键词（仅首页模式）→ 跳过入库
                 if not matched_kw:
                     _log(f"{idx:<4} {sf_id:<16} {status:<8} {price_str:<12} {title[:40]}{tag}")
                     continue
