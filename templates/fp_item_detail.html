@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="content-header">
+    <h2>📄 标的详情 <span id="sfId" style="font-size:14px;color:#888;"></span></h2>
+    <p><a href="/fp-items">← 返回列表</a></p>
+</div>
+
+<div class="panel" id="detailPanel">
+    <div class="empty-tip">加载中...</div>
+</div>
+
+<div class="panel" style="margin-top:16px;">
+    <h3>📈 每日快照历史</h3>
+    <table class="data" id="histTable">
+        <thead>
+            <tr>
+                <th>快照日期</th><th>状态</th><th>当前价</th>
+                <th>报名</th><th>竞价</th><th>围观</th><th>快照时间</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SF_ID = {{ sf_item_id }};
+document.getElementById('sfId').textContent = '(ID=' + SF_ID + ')';
+fetch('/api/fp/item/' + SF_ID).then(r => r.json()).then(res => {
+    const panel = document.getElementById('detailPanel');
+    const item = res.data && res.data.item;
+    const history = (res.data && res.data.history) || [];
+    if (!item) {
+        panel.innerHTML = '<div class="empty-tip">未找到该标的</div>';
+        return;
+    }
+    const url = item.item_url || '';
+    const fullUrl = url.startsWith('//') ? 'https:' + url : url;
+    panel.innerHTML = `
+        <table class="data">
+            <tr><th style="width:140px;">标题</th><td><b>${item.title || '-'}</b></td></tr>
+            <tr><th>状态</th><td>${statusBadge(item.status)}</td></tr>
+            <tr><th>起拍价</th><td>${item.initial_price != null ? Number(item.initial_price).toFixed(2) : '-'}</td></tr>
+            <tr><th>当前价</th><td>${item.current_price != null ? Number(item.current_price).toFixed(2) : '-'}</td></tr>
+            <tr><th>评估价</th><td>${item.consult_price != null ? Number(item.consult_price).toFixed(2) : '-'}</td></tr>
+            <tr><th>市场价</th><td>${item.market_price != null ? Number(item.market_price).toFixed(2) : '-'}</td></tr>
+            <tr><th>报名 / 竞价 / 围观</th>
+                <td>${item.apply_count || 0} / ${item.bid_count || 0} / ${item.viewer_count || 0}</td></tr>
+            <tr><th>延时次数</th><td>${item.delay_count || 0}</td></tr>
+            <tr><th>开拍时间</th><td>${fmtDate(item.start_at)}</td></tr>
+            <tr><th>结束时间</th><td>${fmtDate(item.end_at)}</td></tr>
+            <tr><th>支持贷款</th><td>${item.support_loans ? '是' : '否'}</td></tr>
+            <tr><th>是否流拍</th><td>${item.sell_off ? '是' : '否'}</td></tr>
+            <tr><th>首次入库</th><td>${fmtDate(item.first_seen_at)}</td></tr>
+            <tr><th>最近抓取</th><td>${fmtDate(item.last_seen_at)}</td></tr>
+            <tr><th>详情链接</th><td>${fullUrl ? `<a href="${fullUrl}" target="_blank">${fullUrl}</a>` : '-'}</td></tr>
+        </table>
+    `;
+    const tbody = document.querySelector('#histTable tbody');
+    tbody.innerHTML = '';
+    history.forEach(h => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${h.snapshot_date}</td>
+            <td>${statusBadge(h.status)}</td>
+            <td>${h.current_price != null ? Number(h.current_price).toFixed(2) : '-'}</td>
+            <td>${h.apply_count || 0}</td>
+            <td>${h.bid_count || 0}</td>
+            <td>${h.viewer_count || 0}</td>
+            <td>${fmtDate(h.snapshot_at)}</td>`;
+        tbody.appendChild(tr);
+    });
+});
+</script>
+{% endblock %}

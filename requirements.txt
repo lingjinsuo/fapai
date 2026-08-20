@@ -1,0 +1,7 @@
+pymysql>=1.0.0
+requests>=2.28.0
+beautifulsoup4>=4.12.0
+flask>=2.3.0
+openpyxl>=3.1.0
+APScheduler>=3.10.0
+curl-cffi>=0.6.0    # 模拟 Chrome TLS 指纹，绕过淘宝风控

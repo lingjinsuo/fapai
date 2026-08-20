@@ -1,0 +1,21 @@
+# 临时数据 / 日志 / 截图
+tmp_data/
+logs/
+screen/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 环境配置（如果存在）
+.env

@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="content-header">
+    <h2>🔖 监控关键词</h2>
+    <p>每个关键词每日都会被爬虫搜索一遍；已结束标的自动停止抓取。</p>
+</div>
+
+<div class="panel">
+    <div class="toolbar">
+        <input type="text" id="kwFilter" placeholder="按关键词过滤" style="width:200px;">
+        <button class="btn btn-primary" onclick="searchKeywords()">查询</button>
+        <button class="btn btn-success" onclick="openAdd()">+ 新增关键词</button>
+        <button class="btn btn-warning" onclick="runAll()">▶ 立即抓取全部</button>
+    </div>
+    <table class="data" id="kwTable">
+        <thead>
+            <tr>
+                <th>ID</th><th>关键词</th><th>启用</th><th>标的数</th>
+                <th>上次抓取</th><th>上次数量</th><th>上次状态</th>
+                <th>备注</th><th style="width:240px;">操作</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <div class="empty-tip" id="emptyTip" style="display:none;">暂无关键词</div>
+</div>
+
+<div class="panel" style="margin-top:16px;">
+    <h3>📋 最近运行日志</h3>
+    <table class="data" id="logTable">
+        <thead>
+            <tr>
+                <th>ID</th><th>关键词</th><th>开始</th><th>结束</th>
+                <th>耗时</th><th>翻页</th><th>扫到</th><th>新增</th><th>更新</th><th>状态</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+
+{% block extra_js %}
+<script>
+function searchKeywords() {
+    const filter = document.getElementById('kwFilter').value.trim();
+    fetch('/api/fp/keywords-with-count?keyword=' + encodeURIComponent(filter))
+        .then(r => r.json()).then(res => {
+            const tbody = document.querySelector('#kwTable tbody');
+            tbody.innerHTML = '';
+            const data = res.data || [];
+            document.getElementById('emptyTip').style.display = data.length ? 'none' : 'block';
+            data.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${r.keyword_id}</td>
+                    <td><b>${r.keyword}</b></td>
+                    <td>
+                        <label style="cursor:pointer;">
+                            <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleKw(${r.keyword_id}, this.checked)">
+                        </label>
+                    </td>
+                    <td>${r.item_count || 0}</td>
+                    <td>${fmtDate(r.last_run_at)}</td>
+                    <td>${r.last_total || 0}</td>
+                    <td>${r.last_status ? `<span class="badge badge-${r.last_status}">${r.last_status}</span>` : '-'}</td>
+                    <td>${r.last_error ? `<span style="color:#e74c3c;font-size:11px;" title="${r.last_error}">⚠ ${r.last_error.substring(0,40)}</span>` : ''}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="runOne(${r.keyword_id}, '${r.keyword}')">抓取</button>
+                        <button class="btn btn-sm btn-secondary" onclick="editKw(${r.keyword_id}, '${r.keyword}')">编辑</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteKw(${r.keyword_id}, '${r.keyword}')">删除</button>
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+        });
+}
+function toggleKw(id, enabled) {
+    fetch('/api/fp/keyword/' + id + '/toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: enabled ? 1 : 0})
+    }).then(r => r.json()).then(res => { alertMsg(res.msg); searchKeywords(); });
+}
+function openAdd() {
+    showModal('新增关键词', `
+        <div class="form-row"><label>关键词</label><input id="kwName" placeholder="如：服务器" /></div>
+        <div class="form-row"><label>备注</label><input id="kwRemark" placeholder="可选" /></div>
+        <div class="form-row"><label><input type="checkbox" id="kwEnabled" checked> 启用</label></div>
+    `, () => {
+        const kw = document.getElementById('kwName').value.trim();
+        if (!kw) { alertMsg('关键词不能为空'); return; }
+        fetch('/api/fp/keyword', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                keyword: kw,
+                remark: document.getElementById('kwRemark').value.trim(),
+                enabled: document.getElementById('kwEnabled').checked ? 1 : 0
+            })
+        }).then(r => r.json()).then(res => { alertMsg(res.msg); searchKeywords(); });
+    });
+}
+function editKw(id, oldName) {
+    showModal('编辑关键词 #' + id, `
+        <div class="form-row"><label>关键词</label><input id="kwName" value="${oldName}" /></div>
+    `, () => {
+        fetch('/api/fp/keyword/' + id, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({keyword: document.getElementById('kwName').value.trim()})
+        }).then(r => r.json()).then(res => { alertMsg(res.msg); searchKeywords(); });
+    });
+}
+function deleteKw(id, name) {
+    if (!confirm('确认删除关键词 [' + name + '] ?')) return;
+    fetch('/api/fp/keyword/' + id, {method: 'DELETE'})
+        .then(r => r.json()).then(res => { alertMsg(res.msg); searchKeywords(); });
+}
+function runOne(id, name) {
+    if (!confirm('立即抓取关键词 [' + name + '] ?')) return;
+    fetch('/api/fp/run-now', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({keyword_id: id})
+    }).then(r => r.json()).then(res => { alertMsg(res.msg); });
+}
+function runAll() {
+    if (!confirm('立即抓取所有启用的关键词？')) return;
+    fetch('/api/fp/run-now', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    }).then(r => r.json()).then(res => { alertMsg(res.msg); });
+}
+function loadLogs() {
+    fetch('/api/fp/run-logs?limit=15').then(r => r.json()).then(res => {
+        const tbody = document.querySelector('#logTable tbody');
+        tbody.innerHTML = '';
+        (res.data || []).forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${r.id}</td>
+                <td>${r.keyword_name || '-'}</td>
+                <td>${fmtDate(r.start_at)}</td>
+                <td>${fmtDate(r.end_at)}</td>
+                <td>${r.duration_sec}s</td>
+                <td>${r.pages_scanned}</td>
+                <td>${r.items_found}</td>
+                <td>${r.items_new}</td>
+                <td>${r.items_updated}</td>
+                <td><span class="badge badge-${r.status}">${r.status}</span></td>`;
+            tbody.appendChild(tr);
+        });
+    });
+}
+searchKeywords();
+loadLogs();
+setInterval(loadLogs, 10000);
+</script>
+{% endblock %}
+
+{% endblock %}

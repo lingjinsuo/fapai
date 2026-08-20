@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="content-header">
+    <h2>📦 标的列表</h2>
+    <p>所有抓取到的拍卖标的，可按关键词 / 状态 / 时间筛选。</p>
+</div>
+
+<div class="stats-row" id="statsRow">
+    <div class="stat-card primary"><div class="label">标的总数</div><div class="value" id="stat-total">-</div></div>
+    <div class="stat-card success"><div class="label">进行中</div><div class="value" id="stat-doing">-</div></div>
+    <div class="stat-card warning"><div class="label">即将开始</div><div class="value" id="stat-todo">-</div></div>
+    <div class="stat-card danger"><div class="label">已结束</div><div class="value" id="stat-done">-</div></div>
+    <div class="stat-card"><div class="label">关键词 / 已启用</div><div class="value" id="stat-kw">-</div></div>
+</div>
+
+<div class="panel">
+    <div class="toolbar">
+        <input type="text" id="fKw" placeholder="标题关键词" style="width:160px;">
+        <select id="fStatus">
+            <option value="">全部状态</option>
+            <option value="doing">doing (进行中)</option>
+            <option value="todo">todo (即将开始)</option>
+            <option value="done">done (已结束)</option>
+            <option value="closed">closed (已关闭)</option>
+        </select>
+        <input type="date" id="fFrom" />
+        <span>~</span>
+        <input type="date" id="fTo" />
+        <button class="btn btn-primary" onclick="load(0)">查询</button>
+        <button class="btn btn-secondary" onclick="resetFilter()">重置</button>
+        <span style="flex:1;"></span>
+        <a class="btn btn-secondary" id="exportCsv" href="#">导出 CSV</a>
+        <a class="btn btn-success" id="exportXlsx" href="#">导出 XLSX</a>
+    </div>
+    <table class="data" id="dataTable">
+        <thead>
+            <tr>
+                <th>标的ID</th><th>标题</th><th>状态</th>
+                <th>起拍价</th><th>当前价</th><th>评估价</th>
+                <th>报名</th><th>竞价</th><th>围观</th>
+                <th>开拍时间</th><th>结束时间</th><th>最近抓取</th>
+                <th>链接</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <div class="empty-tip" id="emptyTip" style="display:none;">暂无数据</div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function getQs() {
+    const kw = document.getElementById('fKw').value.trim();
+    const status = document.getElementById('fStatus').value;
+    const from = document.getElementById('fFrom').value;
+    const to = document.getElementById('fTo').value;
+    return new URLSearchParams(Object.entries({
+        keyword: kw, status, date_from: from, date_to: to
+    }).filter(([_, v]) => v));
+}
+function exportLinks() {
+    const qs = getQs().toString();
+    document.getElementById('exportCsv').href = '/api/fp/export/items?' + qs;
+    document.getElementById('exportXlsx').href = '/api/fp/export/items-xlsx?' + qs;
+}
+function load() {
+    exportLinks();
+    const qs = getQs();
+    qs.append('limit', '200');
+    fetch('/api/fp/items?' + qs.toString())
+        .then(r => r.json()).then(res => {
+            const tbody = document.querySelector('#dataTable tbody');
+            tbody.innerHTML = '';
+            const data = res.data || [];
+            document.getElementById('emptyTip').style.display = data.length ? 'none' : 'block';
+            data.forEach(r => {
+                const url = r.item_url || '';
+                const fullUrl = url.startsWith('//') ? 'https:' + url : url;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${r.sf_item_id}</td>
+                    <td><a href="/fp-item/${r.sf_item_id}">${(r.title || '').substring(0, 60)}</a></td>
+                    <td>${statusBadge(r.status)}</td>
+                    <td>${r.initial_price != null ? Number(r.initial_price).toFixed(2) : '-'}</td>
+                    <td>${r.current_price != null ? Number(r.current_price).toFixed(2) : '-'}</td>
+                    <td>${r.consult_price != null ? Number(r.consult_price).toFixed(2) : '-'}</td>
+                    <td>${r.apply_count || 0}</td>
+                    <td>${r.bid_count || 0}</td>
+                    <td>${r.viewer_count || 0}</td>
+                    <td>${fmtDate(r.start_at)}</td>
+                    <td>${fmtDate(r.end_at)}</td>
+                    <td>${fmtDate(r.last_seen_at)}</td>
+                    <td>${fullUrl ? `<a href="${fullUrl}" target="_blank">详情</a>` : '-'}</td>`;
+                tbody.appendChild(tr);
+            });
+        });
+}
+function resetFilter() {
+    document.getElementById('fKw').value = '';
+    document.getElementById('fStatus').value = '';
+    document.getElementById('fFrom').value = '';
+    document.getElementById('fTo').value = '';
+    load();
+}
+function loadSummary() {
+    fetch('/api/fp/summary').then(r => r.json()).then(res => {
+        const d = res.data || {};
+        document.getElementById('stat-total').textContent = d.total_items || 0;
+        document.getElementById('stat-doing').textContent = d.doing_items || 0;
+        document.getElementById('stat-todo').textContent = d.todo_items || 0;
+        document.getElementById('stat-done').textContent = d.done_items || 0;
+        document.getElementById('stat-kw').textContent =
+            (d.total_keywords || 0) + ' / ' + (d.enabled_keywords || 0);
+    });
+}
+loadSummary();
+load();
+setInterval(loadSummary, 30000);
+</script>
+{% endblock %}
