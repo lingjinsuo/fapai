@@ -471,8 +471,8 @@ def fp_debug_fetch():
 def _start_embedded_scheduler():
     """
     启动 web 时自动启动内置调度器：
-    - 立即跑一次全量抓取（异步，不阻塞 web 启动）
-    - 之后每天 SCHEDULE_DAILY_TIME 自动跑
+    - 每天 SCHEDULE_DAILY_TIME 自动跑
+    - 启动时会打印下次触发时间（cron 不会触发当天已过的时间）
     """
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -499,7 +499,18 @@ def _start_embedded_scheduler():
             misfire_grace_time=600,
         )
         sched.start()
-        send_log_to_frontend(f"⏰ 内置调度器已启动：每日 {hour:02d}:{minute:02d} 抓取任务")
+        # 打印下次触发时间（关键：cron 不会触发已过的时间）
+        job = sched.get_job('daily_scrape')
+        next_run = job.next_run_time if job else None
+        msg = f"⏰ 内置调度器已启动：每日 {hour:02d}:{minute:02d} 抓取任务"
+        if next_run:
+            msg += f"\n   ⏱️  下次触发时间: {next_run.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        from datetime import datetime as _dt
+        now = _dt.now()
+        if next_run and next_run.date() > now.date():
+            msg += f"\n   ⚠️ 注意：今天的 {hour:02d}:{minute:02d} 已过，下次要等明天！"
+        send_log_to_frontend(msg)
+        print(msg.replace('\n', ' | '))
         return sched
     except Exception as e:
         send_log_to_frontend(f"⚠️ 调度器启动失败: {e}")

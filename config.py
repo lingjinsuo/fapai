@@ -79,7 +79,7 @@ CAPTCHA_KEYWORDS = ['_____tmd_____', 'action":"captcha"', 'punish?x5secdata']
 
 # ========== 定时任务配置 ==========
 # 每日跑批时间（24h 制，"HH:MM"）。例如 "09:00" 表示每天早上 9 点
-SCHEDULE_DAILY_TIME = '09:00'
+SCHEDULE_DAILY_TIME = '12:20'
 # 调度器时区
 SCHEDULE_TIMEZONE = 'Asia/Shanghai'
 # 启动时是否立即先跑一次（True / False）
