@@ -423,12 +423,20 @@ def scrape_keyword(keyword_row, session=None):
 
 def scrape_all_enabled():
     """抓取所有启用的关键词"""
+    # 打印对应的 SQL（与 db.get_enabled_keywords() 中实际执行的一致）
+    _log("─" * 60)
+    _log("🔎 [加载启用的关键词] SQL:")
+    _log("   SELECT * FROM fp_keywords WHERE enabled = 1 AND is_deleted = 0 ORDER BY id")
+    _log("─" * 60)
+
     keywords = db.get_enabled_keywords()
     if not keywords:
         _log("⚠️ 没有启用的关键词")
         return []
 
-    _log(f"📋 共 {len(keywords)} 个启用的关键词")
+    _log(f"📋 共 {len(keywords)} 个启用的关键词:")
+    for kw in keywords:
+        _log(f"   - id={kw['id']:3d}  keyword={kw['keyword']!r}  enabled={kw['enabled']}  last_status={kw.get('last_status') or '-'}")
     session = _build_session()
     results = []
     for kw in keywords:
