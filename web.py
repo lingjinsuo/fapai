@@ -4,7 +4,8 @@
 法拍监控系统 - Web 服务
 - 关键词管理 / 标的列表 / 标的详情 / 实时日志 (SSE)
 - 通过 /api/fp/run-now 触发抓取
-- 启动 web.py 时不会自动跑抓取；定时由 scheduler.py 接管
+- 启动 web.py 时**自动**启动内置调度器 + 立即跑一次全量抓取
+- （scheduler.py 仍可独立运行，效果一致）
 """
 
 import csv
@@ -20,6 +21,8 @@ import database as db
 from config import (
     WEB_HOST, WEB_PORT, WEB_DEBUG, APP_NAME,
     BASE_DIR,
+    SCHEDULE_DAILY_TIME,
+    SCHEDULE_TIMEZONE,
 )
 
 
@@ -463,8 +466,87 @@ def fp_debug_fetch():
 
 # ========== 启动 ==========
 
+# ========== 启动 ==========
+
+def _start_embedded_scheduler():
+    """
+    启动 web 时自动启动内置调度器：
+    - 立即跑一次全量抓取（异步，不阻塞 web 启动）
+    - 之后每天 SCHEDULE_DAILY_TIME 自动跑
+    """
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        import threading
+
+        # 从 config 读取定时参数
+        hour, minute = 9, 0
+        try:
+            h, m = SCHEDULE_DAILY_TIME.strip().split(':')
+            hour, minute = int(h), int(m)
+        except Exception:
+            pass
+        tz = SCHEDULE_TIMEZONE
+
+        sched = BackgroundScheduler(timezone=tz)
+        sched.add_job(
+            lambda: threading.Thread(target=_run_daily_scrape, daemon=True).start(),
+            CronTrigger(hour=hour, minute=minute),
+            id='daily_scrape',
+            name=f'每日{SCHEDULE_DAILY_TIME}抓取',
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=600,
+        )
+        sched.start()
+        send_log_to_frontend(f"⏰ 内置调度器已启动：每日 {hour:02d}:{minute:02d} 抓取任务")
+        return sched
+    except Exception as e:
+        send_log_to_frontend(f"⚠️ 调度器启动失败: {e}")
+        return None
+
+
+def _run_daily_scrape():
+    """每日定时抓取任务（通过 SSE 推送到日志）"""
+    try:
+        send_log_to_frontend("=" * 50)
+        send_log_to_frontend(f"⏰ 触发每日定时抓取 @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        send_log_to_frontend("=" * 50)
+        import fp_scraper
+        results = fp_scraper.scrape_all_enabled()
+        ok = sum(1 for r in results if r.get('status') in ('success', 'stopped'))
+        fail = len(results) - ok
+        send_log_to_frontend(f"✅ 每日抓取完成: 成功/停止 {ok} / 失败 {fail} / 共 {len(results)}")
+    except Exception as e:
+        send_log_to_frontend(f"❌ 每日抓取异常: {e}")
+
+
+# ========== 启动时自动跑批（模块级） ==========
+# web 模块加载时自动启动内置调度器；每天 SCHEDULE_DAILY_TIME 自动跑一次
+# 启动 web 时**不会**立刻抓数据（除非手动点击前端"立即抓取"按钮）
+_WEB_AUTO_STARTED = False
+
+
+def _bootstrap_auto_run():
+    """web 模块加载时自动启动内置调度器"""
+    global _WEB_AUTO_STARTED
+    if _WEB_AUTO_STARTED:
+        return
+    _WEB_AUTO_STARTED = True
+
+    # 启动内置调度器（每日 SCHEDULE_DAILY_TIME 自动跑批）
+    _start_embedded_scheduler()
+    print(f"⏰ 内置调度器已启动：每日 {SCHEDULE_DAILY_TIME} 抓取任务")
+    print(f"💡 如需立即抓取，请点击前端页面上的「立即抓取」按钮或调用 /api/fp/run-now")
+
+
+_bootstrap_auto_run()
+
+
 if __name__ == '__main__':
     print(f"=== {APP_NAME} 启动 ===")
     print(f"Web:  http://127.0.0.1:{WEB_PORT}")
-    print(f"每日定时任务:  python scheduler.py   （独立启动）")
+    print(f"⏰ 内置调度器已启动：每日 {SCHEDULE_DAILY_TIME} 抓取任务")
+    print("💡 启动时不会立即抓取，到点才会跑")
+    print("（如需独立运行调度器: python scheduler.py）")
     app.run(host=WEB_HOST, port=WEB_PORT, debug=WEB_DEBUG, threaded=True)

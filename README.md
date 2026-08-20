@@ -39,7 +39,7 @@ pip install -r requirements.txt
 - `SCHEDULE_DAILY_TIME`：每日跑批时间（默认 `09:00`）
 - `WEB_PORT`：Web 端口（默认 `5002`）
 
-### 4. 启动 Web 服务
+### 4. 启动 Web 服务（含定时任务）
 
 ```bash
 bash run.sh
@@ -49,11 +49,14 @@ python3 web.py
 
 访问 http://127.0.0.1:5002
 
-### 5. 启动定时任务（另开终端）
+**启动行为**：
+- 启动 web 时**不会**立刻抓数据（避免在非工作时间浪费带宽/触发风控）
+- 内置 APScheduler 已在后台运行，每天 `SCHEDULE_DAILY_TIME`（默认 09:00）自动跑批
+- 如需立即抓取：
+  - 前端 `/fp-keys` 页面 → 点击「立即抓取全部」或单个关键词的「抓取」按钮
+  - 或调用 API：`POST /api/fp/run-now`
 
-```bash
-python3 scheduler.py
-```
+> `scheduler.py` 保留作为独立运行入口，效果一致。
 
 ## 目录结构
 
