@@ -172,6 +172,25 @@ def _ms_to_dt(ms):
         return None
 
 
+def _normalize_url(url):
+    """协议相对 URL //host/path -> https://host/path
+    已经是 http/https 的保持不变；空值返回 None。
+    """
+    if not url:
+        return None
+    s = str(url).strip()
+    if not s:
+        return None
+    if s.startswith('//'):
+        return 'https:' + s
+    if s.startswith('http://') or s.startswith('https://'):
+        return s
+    # 裸路径，补 https://
+    if s.startswith('/'):
+        return 'https://sf.taobao.com' + s
+    return 'https://' + s
+
+
 # ========== 标的（fp_items）操作 ==========
 
 def is_item_seen_and_done(sf_item_id):
@@ -250,8 +269,8 @@ def upsert_fp_item(item, keyword_id=None):
                 'end_at': _ms_to_dt(item.get('end')),
                 'support_loans': int(item.get('supportLoans') or 0),
                 'sell_off': 1 if item.get('sellOff') else 0,
-                'item_url': item.get('itemUrl'),
-                'pic_url': item.get('picUrl'),
+                'item_url': _normalize_url(item.get('itemUrl')),
+                'pic_url': _normalize_url(item.get('picUrl')),
                 'last_seen_at': now,
             }
 
