@@ -17,6 +17,7 @@
 
 import argparse
 import json
+import os
 import random
 import re
 import subprocess
@@ -91,15 +92,56 @@ def _build_session():
                 self.backend = 'curl'
             def get(self, url, timeout=None):
                 # 用 curl 命令行，TLS 指纹 = curl/libcurl（淘宝对其友好）
+                # 关键：不静默 stderr，并把退出码带回去，便于上层区分
+                #   * exit 0 且 body 为空 -> 站点确实返回空（少见，多为风控）
+                #   * 非 0 (e.g. 56 代理 CONNECT 失败 / 28 超时 / 6 DNS) -> 网络/代理异常
+                #
+                # 注意：即使系统设置了 HTTP_PROXY/HTTPS_PROXY，本项目也强制直连，
+                # 因为代理进程经常没启动，直接走代理会得到 exit=7 (Connection refused)
                 cmd = [
-                    'curl', '-sL',
+                    'curl', '-sSL',
                     '--max-time', str(int(timeout or SCRAPER_REQUEST_TIMEOUT)),
+                    '--connect-timeout', '10',
+                    # 显式禁用代理（覆盖环境变量 HTTPS_PROXY/HTTP_PROXY/all_proxy 等）
+                    '--noproxy', '*',
+                    '-x', '',
                     '-A', self._headers['User-Agent'],
                     '-H', f"Referer: {self._headers.get('Referer','')}",
                     '-H', f"Accept-Language: {self._headers.get('Accept-Language','zh-CN,zh;q=0.9')}",
                     url,
                 ]
-                proc = subprocess.run(cmd, capture_output=True, timeout=timeout or SCRAPER_REQUEST_TIMEOUT + 10)
+                try:
+                    # 子进程环境清空所有 *_PROXY 变量，双保险
+                    clean_env = {
+                        k: v for k, v in os.environ.items()
+                        if k.lower() not in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')
+                    }
+                    proc = subprocess.run(
+                        cmd, capture_output=True,
+                        timeout=(timeout or SCRAPER_REQUEST_TIMEOUT) + 10,
+                        env=clean_env,
+                    )
+                except subprocess.TimeoutExpired as e:
+                    # curl 本身卡死：返回空 body + 明确错误信息，避免上层误判成 "empty body"
+                    raise RuntimeError(
+                        f'curl 调用超时（>{(timeout or SCRAPER_REQUEST_TIMEOUT) + 10}s）'
+                    ) from e
+                stderr = (proc.stderr or b'').decode('utf-8', 'ignore').strip()
+                if proc.returncode != 0:
+                    # 把 curl 的真实原因带上，例如：
+                    #   curl: (56) CONNECT tunnel failed, response 501
+                    #   curl: (28) Operation timeout
+                    #   curl: (6) Could not resolve host
+                    tail = stderr.splitlines()[-1] if stderr else f'curl exit={proc.returncode}'
+                    raise RuntimeError(
+                        f'curl 失败 (exit={proc.returncode}): {tail}'
+                    )
+                if stderr:
+                    # 0 但有 stderr（如 Warning），仅打日志，不当失败
+                    try:
+                        _log(f"   ℹ️ curl 提示: {stderr.splitlines()[-1]}")
+                    except Exception:
+                        pass
                 return _CurlResponse(proc.stdout)
         return _CurlSession()
 
@@ -109,9 +151,11 @@ def _build_session():
                 self._headers = dict(FA_PAI_HEADERS)
                 self.backend = 'curl_cffi'
             def get(self, url, timeout=None):
+                # proxies={"http": None, "https": None} 强制不走系统代理
                 return cffi_requests.get(
                     url, headers=self._headers, timeout=timeout or SCRAPER_REQUEST_TIMEOUT,
                     impersonate='chrome120',
+                    proxies={"http": None, "https": None},
                 )
         return _CffiSession()
 
@@ -124,6 +168,7 @@ def _build_session():
             import requests
             return requests.get(
                 url, headers=self._headers, timeout=timeout or SCRAPER_REQUEST_TIMEOUT,
+                proxies={"http": None, "https": None},
             )
     return _ReqSession()
 
@@ -136,8 +181,11 @@ class _CurlResponse:
     def content(self):
         return self._raw
     def raise_for_status(self):
+        # 只有在 curl 真的返回 0 退出码、但站点 body 为空时，才走这里
+        # 这种情况几乎都是 风控/验证码 静默重置/网关返回 204；
+        # 网络层异常（代理、超时、DNS）已经在 _CurlSession.get 抛更具体错误。
         if not self._raw:
-            raise RuntimeError('curl returned empty body')
+            raise RuntimeError('curl returned empty body (HTTP 200/204 但 body 为空 — 通常是风控空响应)')
 
 
 def fetch_page(session, keyword, page=1, use_keyword_search=None):
