@@ -9,12 +9,21 @@
 
 import os
 
+# 本地mysql数据库配置
+#DB_CONFIG = {
+#    'host': '127.0.0.1',
+#    'port': 4000,
+#    'user': 'root',
+#    'password': '123456',
+#    'database': 'by_hardware',
+#    'charset': 'utf8mb4'
+#}
 # ========== 数据库配置 ==========
 DB_CONFIG = {
-    'host': '127.0.0.1',
-    'port': 4000,
+    'host': '192.168.1.97',
+    'port': 3306,
     'user': 'root',
-    'password': '123456',
+    'password': 'pd123456',
     'database': 'by_hardware',
     'charset': 'utf8mb4'
 }
